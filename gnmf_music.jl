@@ -4,14 +4,14 @@
 using Markdown
 using InteractiveUtils
 
-# ╔═╡ 76472511-92f0-471f-89d9-83dbe39003b5
+# ╔═╡ ee730960-e9f1-11ed-052d-f5fa1dab785c
 begin
 	using Einsum
 	using Random
 	using LinearAlgebra
 end
 
-# ╔═╡ 6ffa1770-9c95-4f1a-bba1-d0c03b330f62
+# ╔═╡ d574d519-0dba-4879-8ef4-ed4984d222b7
 begin
 	function ×₃(T::Array{Float64, 3}, v::Vector{Float64})
 		@einsum M[i,j] := T[i,j,k]*v[k] #contract the 3rd index of a tensor with a vector
@@ -19,32 +19,36 @@ begin
 	end
 	
 	function mu_gnmf(X, T; maxiter=800, tol=5e-4, λ=0, ϵ=1e-8) #multipicative updated nonnegative matrix factorization
-		    #using LinearAlgebra
-		    
-		    # Initilization
-		    m, n = size(X)
-			r, N, p = size(T)
-			@assert n==N "Missmatch between the second dimention of X and T"
-		    A = abs.(randn((m, r)))
-		    b = abs.(randn((p,)))
-		    i = 0
+		#using LinearAlgebra
 		
-		    # Updates
-		    while (norm(X - A*(T×₃b))/norm(X) > tol) && (i < maxiter)
-		        i += 1
-				@show i
-		        #@einsum b[q] = b[q] * T[u,v,q]*A[w,u]*X[w,v] / (T[i,j,q]*A[l,i]*A[l,s]*T[s,j,t]*b[t] + ϵ + λ*b[q]) #(W'*V ) ./ (W'*W*H  .+ ϵ + λ.*H) #update b
-				#b_old = b
-				for q ∈ 1:p
-					TT = T[:,:,q]
-					b[q] *= tr(TT'*A'*X) / (tr(TT'*A'*A*(T×₃b)) + ϵ + λ*b[q]) #can replace b with b_old?
-				end
-				B = (T×₃b)
-		        A .*= (X *B') ./ (A *B*B' .+ ϵ + λ.*A) #update A
-		    end
-		
-		    return (A, b, i)
+		# Initilization
+		m, n = size(X)
+		r, N, p = size(T)
+		@assert n==N "Missmatch between the second dimention of X and T"
+		A = abs.(randn((m, r)))
+		b = abs.(randn((p,)))
+		i = 0
+	
+		# Updates
+		while (norm(X - A*(T×₃b))/norm(X) > tol) && (i < maxiter)
+			i += 1
+			@show i
+			#@einsum b[q] = b[q] * T[u,v,q]*A[w,u]*X[w,v] / (T[i,j,q]*A[l,i]*A[l,s]*T[s,j,t]*b[t] + ϵ + λ*b[q]) #(W'*V ) ./ (W'*W*H  .+ ϵ + λ.*H) #update b
+			#b_old = b
+			for q ∈ 1:p
+				TT = T[:,:,q]
+				b[q] *= tr(TT'*A'*X) / (tr(TT'*A'*A*(T×₃b)) + ϵ + λ*b[q]) #can replace b with b_old?
+			end
+			B = (T×₃b)
+			A .*= (X *B') ./ (A *B*B' .+ ϵ + λ.*A) #update A
 		end
+	
+		return (A, b, i)
+	end
+end
+
+# ╔═╡ 7fae4483-bb30-4236-a080-adbb83f458e3
+begin
 	#Random.seed!(314)
 	m,n,r,p = (100,100,10,5)
 	A = abs.(randn((m, r)))
@@ -55,33 +59,6 @@ begin
 	X = A*(T×₃b)
 	(AA, bb, i) = mu_gnmf(X, T)
 end
-
-# ╔═╡ be1c0889-2eb3-40c7-84ce-f0ffb165b2cf
-AA
-
-# ╔═╡ 25da844c-0793-48ab-b619-f91ac111fc10
-A
-
-# ╔═╡ 310756d6-9429-46a2-8449-7cb0e33e1902
-b
-
-# ╔═╡ 420a33e5-05c3-478d-8d99-5f8cb4b8b276
-bb
-
-# ╔═╡ 34fd689f-44d6-4a70-9788-f3f3b978bbda
-T
-
-# ╔═╡ 57aff24b-93ca-4016-bb8d-a6bac1cc0cad
-X
-
-# ╔═╡ 20ce07da-1ae0-4c09-97f4-8c6b3fd35e30
-AA*(T×₃bb)
-
-# ╔═╡ d930924e-52eb-4261-85ff-c680927a567c
-(T×₃bb)
-
-# ╔═╡ fb5b8b19-f504-48c7-a7f7-889bdd6d57fe
-(T×₃b)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -167,16 +144,8 @@ version = "5.1.1+0"
 """
 
 # ╔═╡ Cell order:
-# ╠═76472511-92f0-471f-89d9-83dbe39003b5
-# ╠═6ffa1770-9c95-4f1a-bba1-d0c03b330f62
-# ╠═be1c0889-2eb3-40c7-84ce-f0ffb165b2cf
-# ╠═25da844c-0793-48ab-b619-f91ac111fc10
-# ╠═310756d6-9429-46a2-8449-7cb0e33e1902
-# ╠═420a33e5-05c3-478d-8d99-5f8cb4b8b276
-# ╠═34fd689f-44d6-4a70-9788-f3f3b978bbda
-# ╠═57aff24b-93ca-4016-bb8d-a6bac1cc0cad
-# ╠═20ce07da-1ae0-4c09-97f4-8c6b3fd35e30
-# ╠═d930924e-52eb-4261-85ff-c680927a567c
-# ╠═fb5b8b19-f504-48c7-a7f7-889bdd6d57fe
+# ╠═ee730960-e9f1-11ed-052d-f5fa1dab785c
+# ╠═d574d519-0dba-4879-8ef4-ed4984d222b7
+# ╠═7fae4483-bb30-4236-a080-adbb83f458e3
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
