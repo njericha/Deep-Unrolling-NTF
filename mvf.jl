@@ -13,6 +13,7 @@ function ×₃(T::Array{Float64, 3}, v::Vector{Float64})
 end
 
 exp_update(x) = (exp(x)-1) / (exp(1)-1)
+smooth_power(i) = 2-1/i#tanh(i-1)+1#3 - 2000/(i+999)
 
 """Matrix-Vector Factor X=ATb using multipicative updates"""
 function mvf(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1e-8)
@@ -28,14 +29,15 @@ function mvf(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1
     error = zeros((maxiter,))
     normX = norm(X)
     error[i] = norm(X - A*(T×₃b))/normX
+    B = (T×₃b)
 
     # Updates
     while (error[i] > tol) && (i < maxiter)
-        i += 1
+        power = smooth_power(i)
         
         # Precompute Matricies
         AX = A'X
-        AATb = A'A*(T×₃b)
+        AATb = A'A*B
         
         # Update b
         for q ∈ eachindex(b)
@@ -52,7 +54,57 @@ function mvf(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1
         A .*= ((X*B') ./ (A*B*B' .+ ϵA .+ λA.*A)).^power
 
         # Find relative error
+        i += 1
         error[i] = norm(X - A*B)/normX
+    end
+
+    error = error[1:i] # Chop off excess
+    # Normalize b
+    bnorm = norm(b)
+    A .*= bnorm
+    b ./= bnorm
+    return (A, b, error)
+end
+
+"""Alternating least squares to solve X=ATb"""
+function als(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1e-8)
+    # Extract Sizes
+    m, n = size(X)
+    r, N, p = size(T)
+    @assert n==N "Missmatch between the second dimention of X and T"
+    
+    # Initilization
+    A = abs.(randn((m, r)))
+    b = abs.(randn((p,)))
+    i = 1
+    error = zeros((maxiter,))
+    normX = norm(X)
+    error[i] = norm(X - A*(T×₃b))/normX
+
+    # Precompute
+    @einsum XT[i,j,q] := X[i,l]*T[j,l,q] #access XTq = @view XT[:,:,q]
+    @einsum TT[i,j,k,q] := T[i,l,k]*T[j,l,q] #access TTkq = @view TT[:,:,k,q]
+    @einsum c[q] := A[i,j]*XT[i,j,q]
+    @einsum D[k,q] := A[l,i]*A[l,j]*TT[i,j,k,q]
+
+    # Updates
+    while (error[i] > tol) && (i < maxiter)
+        # Update b
+        b = abs.(D \ c)
+
+        # Precompute Matrix
+        B = T×₃b
+
+        # Update A
+        A = abs.(X / B)
+
+        # Find relative error
+        i += 1
+        error[i] = norm(X - A*B)/normX
+
+        # Precompute
+        @einsum c[q] = A[i,j]*XT[i,j,q] # note = rather than := becuase the memory is already allocated
+        @einsum D[k,q] = A[l,i]*A[l,j]*TT[i,j,k,q]
     end
 
     error = error[1:i] # Chop off excess
