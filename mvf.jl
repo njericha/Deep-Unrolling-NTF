@@ -14,6 +14,7 @@ end
 
 exp_update(x) = (exp(x)-1) / (exp(1)-1)
 smooth_power(i) = 2-1/i#tanh(i-1)+1#3 - 2000/(i+999)
+ReLU(x) = max(x,0)
 
 """Matrix-Vector Factor X=ATb using multipicative updates"""
 function mvf(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1e-8)
@@ -67,7 +68,7 @@ function mvf(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1
 end
 
 """Alternating least squares to solve X=ATb"""
-function als(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1e-8)
+function als(X, T; maxiter=800, tol=1e-3)
     # Extract Sizes
     m, n = size(X)
     r, N, p = size(T)
@@ -90,13 +91,13 @@ function als(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1
     # Updates
     while (error[i] > tol) && (i < maxiter)
         # Update b
-        b = abs.(D \ c)
+        b = ReLU.(D \ c)
 
         # Precompute Matrix
         B = T×₃b
 
         # Update A
-        A = abs.(X / B)
+        A = ReLU.(X / B)
 
         # Find relative error
         i += 1
@@ -113,6 +114,118 @@ function als(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1
     A .*= bnorm
     b ./= bnorm
     return (A, b, error)
+end
+
+function als(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0) #TODO Combine into one function with the previous version
+    # Extract Sizes
+    m, n = size(X)
+    r, N, p = size(T)
+    @assert n==N "Missmatch between the second dimention of X and T"
+    
+    # Initilization
+    A = abs.(randn((m, r)))
+    b = abs.(randn((p,)))
+    i = 1
+    error = zeros((maxiter,))
+    normX = norm(X)
+    error[i] = norm(X - A*(T×₃b))/normX
+
+    # Precompute
+    @einsum XT[i,j,q] := X[i,l]*T[j,l,q] #access XTq = @view XT[:,:,q]
+    @einsum TT[i,j,k,q] := T[i,l,k]*T[j,l,q] #access TTkq = @view TT[:,:,k,q]
+    @einsum c[q] := A[i,j]*XT[i,j,q]
+    @einsum D[k,q] := A[l,i]*A[l,j]*TT[i,j,k,q]
+
+    # Updates
+    while (error[i] > tol) && (i < maxiter)
+        # Update b
+        b = ReLU.((D + λb*I) \ (c .- ϵb))
+
+        # Precompute Matrix
+        B = T×₃b
+
+        # Update A
+        A = ReLU.((X*B' .- ϵA) / (B*B' + λA*I))
+
+        # Find relative error
+        i += 1
+        error[i] = norm(X - A*B)/normX
+
+        # Precompute
+        @einsum c[q] = A[i,j]*XT[i,j,q] # note = rather than := becuase the memory is already allocated
+        @einsum D[k,q] = A[l,i]*A[l,j]*TT[i,j,k,q]
+    end
+
+    error = error[1:i] # Chop off excess
+    # Normalize b
+    bnorm = norm(b)
+    A .*= bnorm
+    b ./= bnorm
+    return (A, b, error)
+end
+
+function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0)
+    # Extract Sizes
+    m, n = size(X)
+    r, N, p = size(T)
+    @assert n==N "Missmatch between the second dimention of X and T"
+    
+    # Initilization
+    A = abs.(randn((m, r)))
+    b = abs.(randn((p,)))
+
+    # Rescaling step
+    b1 = 1 ./(1:p÷2) + 0.5*abs.(randn((p÷2,)))
+    b2 = 1 ./(1:(p-p÷2)) + 0.5*abs.(randn((p-p÷2,)))
+    b1 ./= b1[1] #ensure first entry of b is 1 and rescale appropriately
+    b2 ./= b2[1] #ensure first entry of b is 1 and rescale appropriately
+    b = [b1;b2]
+
+    i = 1
+    error = zeros((maxiter,))
+    normX = norm(X)
+    error[i] = norm(X - A*(T×₃b))/normX
+
+    # Precompute
+    @einsum XT[i,j,q] := X[i,l]*T[j,l,q] #access XTq = @view XT[:,:,q]
+    @einsum TT[i,j,k,q] := T[i,l,k]*T[j,l,q] #access TTkq = @view TT[:,:,k,q]
+    @einsum c[q] := A[i,j]*XT[i,j,q]
+    @einsum D[k,q] := A[l,i]*A[l,j]*TT[i,j,k,q]
+
+    # Updates
+    while (error[i] > tol) && (i < maxiter)
+        # Update b
+        b = ReLU.((D + λb*I) \ (c .- ϵb))
+
+        # Ensure first entry of b is 1 and rescale appropriately
+        b[1:p÷2] ./= b[1]
+        b[p÷2+1:end] ./= b[p÷2+1]
+
+        # Precompute Matrix
+        B = T×₃b
+
+        # Update A
+        A = ReLU.((X*B' .- ϵA) / (B*B' + λA*I))
+
+        # Find relative error
+        i += 1
+        error[i] = norm(X - A*B)/normX
+
+        # Precompute
+        @einsum c[q] = A[i,j]*XT[i,j,q] # note = rather than := becuase the memory is already allocated
+        @einsum D[k,q] = A[l,i]*A[l,j]*TT[i,j,k,q]
+    end
+
+    error = error[1:i] # Chop off excess
+    # Normalize b
+    #bnorm = norm(b)
+    #A .*= bnorm
+    #b ./= bnorm
+   
+    b1, b2 = b[1:p÷2], b[p÷2+1:end]
+    A1, A2 = A[:, 1:r÷2], A[:, r÷2+1:end];
+
+    return (A1, A2, b1, b2, error)
 end
 
 # Generate a data set all at once
