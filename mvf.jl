@@ -193,6 +193,11 @@ function double_M_norm_reg(b, ν)
     return ν*M
 end
 
+function M_norm_reg(p, ν)
+    M = Diagonal(1:p)^2
+    return ν*M
+end
+
 function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, γA=0, μb=0)
     # Extract Sizes
     m, n = size(X)
@@ -239,13 +244,27 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
 
         # Update b
         v = 0#[n_norm_reg(b[1:p÷2], μb); n_norm_reg(b[p÷2+1:end], μb)]
-        M = double_M_norm_reg(b, μb)
-        b = ReLU.((D + λb*I + M) \ (c .- ϵb .- v))
+        #M = double_M_norm_reg(b, μb)
+        #b = ReLU.((D + λb*I + M) \ (c .- ϵb .- v))
+
+        # Update b fixing b[1] = b[q+1] = 1
+        q = p÷2
+        M = @view M_norm_reg(q, μb)[2:end,2:end]
+        D1 = @view D[2:q, 2:q]
+        d1 = @view D[2:q, 1]
+        D2 = @view D[q+2:end, q+2:end]
+        d2 = @view D[q+2:end, q+1]
+        c1 = @view c[2:q]
+        c2 = @view c[q+2:end]
+        b1 = ReLU.((D1 + λb*I + M) \ (c1 .- d1 .- ϵb))
+        b2 = ReLU.((D2 + λb*I + M) \ (c2 .- d2 .- ϵb))
+        b = [1;b1;1;b2]
+        #println(length(b1),length(b2),length(b))
 
         # Ensure first entry of b is 1 and rescale appropriately
         #println(b);normalize!(@view b[1:p÷2]);normalize!(@view b[p÷2+1:end])
-        b[1:p÷2] ./= (b[1] + 0.1)
-        b[p÷2+1:end] ./= (b[p÷2+1] + 0.1)
+        #b[1:p÷2] ./= (b[1] + 0.1)
+        #b[p÷2+1:end] ./= (b[p÷2+1] + 0.1)
 
         # Precompute Matrix
         B = T×₃b
