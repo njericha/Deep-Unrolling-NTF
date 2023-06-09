@@ -148,12 +148,25 @@ end
 w = 300 # window width
 hop = w÷2 - 1 # number of samples to hop over
 window = hann(w)
-stft(y) = stft(y, window, hop) #make a single parameter 
-istft(Y) = istft(Y, window, hop)
+mystft(y) = stft(y, window, hop) #make a single parameter 
+myistft(Y) = istft(Y, window, hop)
 
-#Φ = angle.(stft(y))
+#Φ = angle.(mystft(y))
 #x1_estimate = istft(X1_estimate .* exp.(im .* Φ))
 
+"""
+doubles a 3-tensor D in the third dimention
+"""
+function double_tensor(D)
+    D1 = cat(D,0 .* D,dims=3)
+    D2 = cat(0 .* D,D,dims=3)
+    DD = cat(D1,D2,dims=1)
+    return DD
+end
+
+"""
+main script function for making the spectogram and the fixed factorization tensor DD
+"""
 function make_spectogram()
     # Generate time points
     sample_rate = 44000. / 16. # 16th reduction from typical sample rate
@@ -162,10 +175,10 @@ function make_spectogram()
     # Matrix Sizes
     nq = sample_rate÷2 #Niquist rate
     tmax = maximum(t)
-    F, T = size(stft(t))
+    F, T = size(mystft(t))
     #r = length(notes)
     freqs = range(0, nq, F)
-    times = range(0, tmax, T)
+    #times = range(0, tmax, T)
 
     L = 52 #88  # of pitches
     N = 6  # of harmonics
@@ -180,28 +193,18 @@ function make_spectogram()
     # Make large tensor
     @einsum D[l,j,n] := close_in_frequency(h[n]*f[l], ν[j])
 
+    DD = double_tensor(D)
+
     # make sources
     x1, x2 = make_sources(t, N)
     y = x1 + x2
 
     # make spectograms
-    Y = abs.(stft(y))
-    Φ = angle.(stft(y))
-    Xs = [abs.(stft(x)) for x ∈ (x1, x2)]
+    Y = abs.(mystft(y))
+    Φ = angle.(mystft(y))
+    Xs = [abs.(mystft(x)) for x ∈ (x1, x2)]
 
-    return Y, Φ, Xs, D
+    return Y, Φ, Xs, DD
 end
 
-"""
-doubles a 3-tensor D in the third dimention
-"""
-function double_tensor(D)
-    D1 = cat(D,0 .* D,dims=3)
-    D2 = cat(0 .* D,D,dims=3)
-    DD = cat(D1,D2,dims=1)
-    return DD
-end
-
-
-(AA, bb, error) = mu_gnmf_12((Y'), DD, maxiter=100,λA=50,λb=1.2,ϵA=1e-1)
-
+#(A1, A2, b1, b2, error) = als_seperate(Y', DD; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0)
