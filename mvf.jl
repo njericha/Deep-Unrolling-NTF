@@ -7,7 +7,7 @@ using LinearAlgebra
 using Einsum
 
 """Contract the 3rd index of a tensor with a vector"""
-function ×₃(T::Array{Float64, 3}, v::Vector{Float64})
+function ×₃(T::AbstractArray{U, 3}, v::Vector{U}) where U
     @einsum M[i,j] := T[i,j,k]*v[k]
     return M
 end
@@ -164,22 +164,55 @@ function als(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0) #TODO Comb
     return (A, b, error)
 end
 
-function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0)
+iseven(n::Integer) = (n % 2 == 0)
+
+function H(A, λ, γ; δ=1e-8)
+    if γ==0 #quick exit
+        return λ*I
+    end
+    colnorms = norm.(eachcol(A)) .+ δ
+    G = Diagonal(colnorms)^(-1)
+    return λ*I + γ*G
+end
+
+function max_norm_reg(b, μ)
+    j = argmax(b)
+    v = zero(b)
+    v[j] = μ
+    return v
+end
+
+function n_norm_reg(b, ν)
+    v = 1:length(b)
+    return ν*v
+end
+
+function double_M_norm_reg(b, ν)
+    p = length(b)÷2
+    M = Diagonal([1:p; 1:p])^2
+    return ν*M
+end
+
+function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, γA=0, μb=0)
     # Extract Sizes
     m, n = size(X)
     r, N, p = size(T)
     @assert n==N "Missmatch between the second dimention of X and T"
-    
+    @assert iseven(r) "size(T)[1] = $r is not even"
+    @assert iseven(p) "size(T)[3] = $p is not even"
+
     # Initilization
     A = abs.(randn((m, r)))
     b = abs.(randn((p,)))
+    v = zero(b)
 
     # Rescaling step
-    b1 = 1 ./(1:p÷2) + 0.5*abs.(randn((p÷2,)))
-    b2 = 1 ./(1:(p-p÷2)) + 0.5*abs.(randn((p-p÷2,)))
+    b1 = 1 ./(1:p÷2) + 0.1*abs.(randn((p÷2,)))
+    b2 = 1 ./(1:p÷2) + 0.1*abs.(randn((p÷2,)))
     b1 ./= b1[1] #ensure first entry of b is 1 and rescale appropriately
     b2 ./= b2[1] #ensure first entry of b is 1 and rescale appropriately
     b = [b1;b2]
+    #println(b)
 
     i = 1
     error = zeros((maxiter,))
@@ -192,28 +225,34 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0)
     @einsum c[q] := A[i,j]*XT[i,j,q]
     @einsum D[k,q] := A[l,i]*A[l,j]*TT[i,j,k,q]
 
+    # Precompute Matrix
+    B = T×₃b
+
     # Updates
     while (error[i] > tol) && (i < maxiter)
+        # Update A
+        A = ReLU.((X*B' .- ϵA) / (B*B' + H(A, λA, γA)))
+
+        # Precompute
+        @einsum c[q] = A[i,j]*XT[i,j,q] # note "=" is used rather than := becuase the memory is already allocated
+        @einsum D[k,q] = A[l,i]*A[l,j]*TT[i,j,k,q]
+
         # Update b
-        b = ReLU.((D + λb*I) \ (c .- ϵb))
+        v = 0#[n_norm_reg(b[1:p÷2], μb); n_norm_reg(b[p÷2+1:end], μb)]
+        M = double_M_norm_reg(b, μb)
+        b = ReLU.((D + λb*I + M) \ (c .- ϵb .- v))
 
         # Ensure first entry of b is 1 and rescale appropriately
-        b[1:p÷2] ./= b[1]
-        b[p÷2+1:end] ./= b[p÷2+1]
+        #println(b);normalize!(@view b[1:p÷2]);normalize!(@view b[p÷2+1:end])
+        b[1:p÷2] ./= (b[1] + 0.1)
+        b[p÷2+1:end] ./= (b[p÷2+1] + 0.1)
 
         # Precompute Matrix
         B = T×₃b
 
-        # Update A
-        A = ReLU.((X*B' .- ϵA) / (B*B' + λA*I))
-
         # Find relative error
         i += 1
         error[i] = norm(X - A*B)/normX
-
-        # Precompute
-        @einsum c[q] = A[i,j]*XT[i,j,q] # note = rather than := becuase the memory is already allocated
-        @einsum D[k,q] = A[l,i]*A[l,j]*TT[i,j,k,q]
     end
 
     error = error[1:i] # Chop off excess
