@@ -226,6 +226,14 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
     b = [b1;b2]
     #println(b)
 
+    #n = 1:q
+    #spectrum1 = @. 1/n
+    #spectrum2 = @. 0*1/n^4
+    #spectrum2[1] = 1
+    #spectrum2[3] = 1/2
+    #spectrum2[5] = 1/3
+    #b = [spectrum1;spectrum2]
+
     i = 1
     error = zeros((maxiter,))
     normX = norm(X)
@@ -269,6 +277,7 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
         b1 = ReLU.(D1 \ (c1 .- d1 .- ϵb))
         b2 = ReLU.(D2 \ (c2 .- d2 .- ϵb))
         b = [1;b1;1;b2]
+        #b = [spectrum1;spectrum2]
         #println(length(b1),length(b2),length(b))
 
         # Ensure first entry of b is 1 and rescale appropriately

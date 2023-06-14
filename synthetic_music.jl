@@ -130,6 +130,11 @@ function make_sources(t, N)
     notes2 = ["G2", "C3", "G2", "B3"]
     delays1 = [0, 0.4, 0.8, 1.4, 2.5] #seconds
     delays2 = [0.2, 0.4, 1, 2] #seconds
+
+    n#otes1 = ["C3", "G2", "C3"]
+    #notes2 = [ "C3", "G2", "B3"]
+    #delays1 = [0, 1.4, 2.5] #seconds
+    #delays2 = [0.4, 1, 2] #seconds
     asr1 = (0.02,0.3,0.1)
     asr2 = (0.1,0.3,0.2)
 
@@ -207,4 +212,4 @@ function make_spectogram()
     return Y, Φ, Xs, DD
 end
 
-#(A1, A2, b1, b2, error) = als_seperate(Y', DD; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0)
+#(A1, A2, b1, b2, error) = als_seperate(Y', DD; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0);
