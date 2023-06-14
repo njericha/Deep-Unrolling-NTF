@@ -174,7 +174,7 @@ function make_spectogram()
 
     # Matrix Sizes
     nq = sample_rate÷2 #Niquist rate
-    tmax = maximum(t)
+    #tmax = maximum(t)
     F, T = size(mystft(t))
     #r = length(notes)
     freqs = range(0, nq, F)

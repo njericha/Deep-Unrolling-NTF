@@ -194,9 +194,11 @@ function double_M_norm_reg(b, ν)
 end
 
 function M_norm_reg(p, ν)
-    M = Diagonal(1:p)^2
+    M = Diagonal(1:p)
     return ν*M
 end
+
+rel_error(x, xhat) = abs(x - xhat) / x
 
 function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, γA=0, μb=0)
     # Extract Sizes
@@ -212,10 +214,15 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
     v = zero(b)
 
     # Rescaling step
-    b1 = 1 ./(1:p÷2) + 0.1*abs.(randn((p÷2,)))
-    b2 = 1 ./(1:p÷2) + 0.1*abs.(randn((p÷2,)))
-    b1 ./= b1[1] #ensure first entry of b is 1 and rescale appropriately
-    b2 ./= b2[1] #ensure first entry of b is 1 and rescale appropriately
+    #b1 = 1 ./(1:p÷2).^0.5 + 0.1*abs.(randn((p÷2,)))
+    #b2 = 1 ./(1:p÷2) + 0.1*abs.(randn((p÷2,)))
+    #b1 ./= b1[1] #ensure first entry of b is 1 and rescale appropriately
+    #b2 ./= b2[1] #ensure first entry of b is 1 and rescale appropriately
+    #b2 = zero(b1)
+    #b2[1] = 1
+    q = p÷2
+    b1 = abs.(randn((p÷2,)))
+    b2 = abs.(randn((p÷2,)))
     b = [b1;b2]
     #println(b)
 
@@ -233,8 +240,8 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
     # Precompute Matrix
     B = T×₃b
 
-    # Updates
-    while (error[i] > tol) && (i < maxiter)
+    # Updates, i==1 to ensure one step is performed, run until the error doesn't improve by tol
+    while (i == 1) || ((rel_error(error[i], error[i-1]) > tol) && (i < maxiter))
         # Update A
         A = ReLU.((X*B' .- ϵA) / (B*B' + H(A, λA, γA)))
 
@@ -248,16 +255,19 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
         #b = ReLU.((D + λb*I + M) \ (c .- ϵb .- v))
 
         # Update b fixing b[1] = b[q+1] = 1
-        q = p÷2
-        M = @view M_norm_reg(q, μb)[2:end,2:end]
-        D1 = @view D[2:q, 2:q]
-        d1 = @view D[2:q, 1]
-        D2 = @view D[q+2:end, q+2:end]
-        d2 = @view D[q+2:end, q+1]
-        c1 = @view c[2:q]
-        c2 = @view c[q+2:end]
-        b1 = ReLU.((D1 + λb*I + M) \ (c1 .- d1 .- ϵb))
-        b2 = ReLU.((D2 + λb*I + M) \ (c2 .- d2 .- ϵb))
+        #M = @view M_norm_reg(q, μb)[2:end,2:end]
+        M = M_norm_reg(q, μb)
+        D += λb*I + [M zero(M);zero(M) M]
+        D1 = @view D[1:q, 2:q]
+        d1 = @view D[1:q, 1]
+        D2 = @view D[q+1:end, q+2:end]
+        d2 = @view D[q+1:end, q+1]
+        c1 = @view c[1:q]
+        c2 = @view c[q+1:end]
+        #b1 = ReLU.((D1 + λb*I + M) \ (c1 .- d1 .- ϵb))
+        #b2 = ReLU.((D2 + λb*I + M) \ (c2 .- d2 .- ϵb))
+        b1 = ReLU.(D1 \ (c1 .- d1 .- ϵb))
+        b2 = ReLU.(D2 \ (c2 .- d2 .- ϵb))
         b = [1;b1;1;b2]
         #println(length(b1),length(b2),length(b))
 
