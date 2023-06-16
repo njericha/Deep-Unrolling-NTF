@@ -131,7 +131,7 @@ function make_sources(t, N)
     delays1 = [0, 0.4, 0.8, 1.4, 2.5] #seconds
     delays2 = [0.2, 0.4, 1, 2] #seconds
 
-    n#otes1 = ["C3", "G2", "C3"]
+    #notes1 = ["C3", "G2", "C3"]
     #notes2 = [ "C3", "G2", "B3"]
     #delays1 = [0, 1.4, 2.5] #seconds
     #delays2 = [0.4, 1, 2] #seconds

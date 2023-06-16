@@ -307,25 +307,24 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
     return (A1, A2, b1, b2, error)
 end
 
-norm_21(A) = sum((norm.(eachcol(A)))...)
+norm_21(A) = sum(norm.(eachcol(A)))
 make_indexes(p) = repeat(1:(p÷2),2) # for example, p=6 -> [1,2,3,1,2,3]
 function norm_n(b)
     p = length(b)
-    sum((make_indexes(p) .* (b .^ 2))...)
+    sum(make_indexes(p) .* (b .^ 2))
 end
 
-f(A, b, X, T, ϵA,γA,λA,μb) = 0.5*norm(X-A*(T×₃b))^2 + ϵA*norm(A,p=1) + γA*norm_21(A) +
+f(A, b, X, T, ϵA,γA,λA,μb) = 0.5*norm(X-A*(T×₃b))^2 + ϵA*norm(vec(A),1) + γA*norm_21(A) +
                              0.5*λA*norm(A)^2 + 0.5*μb*norm_n(b)
 
-function grad_A(A, b, X, T, ϵA,γA,λA) # Gradient w.r.t. A
+function grad_A!(Z, A, b, X, T, ϵA,γA,λA) # Gradient w.r.t. A
     B = T×₃b
     norm_21_matrix = A .* repeat((norm.(eachcol(A)))',size(A)[1],1) .^ (-1)
-    return A*B*B' .- X*B' .+ ϵA .+ γA .* norm_21_matrix .+ λA .* A
-    #return (A*B .- X)*B' .+ ϵA .+ γA .* norm_21_matrix .+ λA .* A #not sure which one is faster
+    Z[:,:] = A*B*B' .- X*B' .+ ϵA .+ γA .* norm_21_matrix .+ λA .* A
+    # (A*B .- X)*B' .+ ϵA .+ γA .* norm_21_matrix .+ λA .* A #not sure which one is faster
 end
 
-function grad_b(A, b, X, T, μb) # Gradient w.r.t. b
-    v = zero(b) # Initilization
+function grad_b!(v, A, b, X, T, μb) # Gradient w.r.t. b
     AX = A'X # Precompute Matricies
     AATb = A'A*(T×₃b)
     indexes = make_indexes(length(b))
@@ -333,7 +332,6 @@ function grad_b(A, b, X, T, μb) # Gradient w.r.t. b
         Tq = @view T[:,:,q]
         v[q] = sum(Tq .* AATb) - sum(Tq .* AX) + μb*idx*b[q]
     end
-    return v
 end
 
 function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0)
@@ -360,16 +358,16 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0)
     mat(a) = reshape(a, m, r)
 
     function update_A(A, b)
-        _, a = lbfgsb(a -> vec(f(mat(a), b, X, T, ϵA,γA,λA,μb)),
-                      a -> vec(grad_A(mat(a), b, X, T, ϵA,γA,λA)),
-                      vec(A), lb=0) # LBFGSB only accepts vector not matrix inputs
+        _, a = lbfgsb(a -> f(mat(a), b, X, T, ϵA,γA,λA,μb),
+                      (z, a) -> grad_A!(mat(z),mat(a), b, X, T, ϵA,γA,λA),
+                      vec(A), lb=0,iprint=0) # LBFGSB only accepts vector not matrix inputs
         return mat(a)
     end
 
     function update_b(A, b)
         _, b = lbfgsb(b -> f(A, b, X, T, ϵA,γA,λA,μb),
-                      b -> grad_b(A, b, X, T, μb),
-                      b, lb=0)
+                      (v, b) -> grad_b!(v, A, b, X, T, μb),
+                      b, lb=0,iprint=0)
         return b
     end
 
