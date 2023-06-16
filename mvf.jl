@@ -4,7 +4,9 @@ Matrix-Vector Factorization Algorithms
 
 using Random
 using LinearAlgebra
+
 using Einsum
+using LBFGSB
 
 """Contract the 3rd index of a tensor with a vector"""
 function ×₃(T::AbstractArray{U, 3}, v::Vector{U}) where U
@@ -166,7 +168,7 @@ end
 
 iseven(n::Integer) = (n % 2 == 0)
 
-function H(A, λ, γ; δ=1e-8)
+function H(A, λ, γ; δ=1e-10)
     if γ==0 #quick exit
         return λ*I
     end
@@ -258,7 +260,7 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
         @einsum D[k,q] = A[l,i]*A[l,j]*TT[i,j,k,q]
 
         # Update b
-        v = 0#[n_norm_reg(b[1:p÷2], μb); n_norm_reg(b[p÷2+1:end], μb)]
+        #v = 0#[n_norm_reg(b[1:p÷2], μb); n_norm_reg(b[p÷2+1:end], μb)]
         #M = double_M_norm_reg(b, μb)
         #b = ReLU.((D + λb*I + M) \ (c .- ϵb .- v))
 
@@ -298,6 +300,93 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
     #bnorm = norm(b)
     #A .*= bnorm
     #b ./= bnorm
+   
+    b1, b2 = b[1:p÷2], b[p÷2+1:end]
+    A1, A2 = A[:, 1:r÷2], A[:, r÷2+1:end];
+
+    return (A1, A2, b1, b2, error)
+end
+
+norm_21(A) = sum((norm.(eachcol(A)))...)
+make_indexes(p) = repeat(1:(p÷2),2) # for example, p=6 -> [1,2,3,1,2,3]
+function norm_n(b)
+    p = length(b)
+    sum((make_indexes(p) .* (b .^ 2))...)
+end
+
+f(A, b, X, T, ϵA,γA,λA,μb) = 0.5*norm(X-A*(T×₃b))^2 + ϵA*norm(A,p=1) + γA*norm_21(A) +
+                             0.5*λA*norm(A)^2 + 0.5*μb*norm_n(b)
+
+function grad_A(A, b, X, T, ϵA,γA,λA) # Gradient w.r.t. A
+    B = T×₃b
+    norm_21_matrix = A .* repeat((norm.(eachcol(A)))',size(A)[1],1) .^ (-1)
+    return A*B*B' .- X*B' .+ ϵA .+ γA .* norm_21_matrix .+ λA .* A
+    #return (A*B .- X)*B' .+ ϵA .+ γA .* norm_21_matrix .+ λA .* A #not sure which one is faster
+end
+
+function grad_b(A, b, X, T, μb) # Gradient w.r.t. b
+    v = zero(b) # Initilization
+    AX = A'X # Precompute Matricies
+    AATb = A'A*(T×₃b)
+    indexes = make_indexes(length(b))
+    for (q, idx) ∈ zip(eachindex(b), indexes)
+        Tq = @view T[:,:,q]
+        v[q] = sum(Tq .* AATb) - sum(Tq .* AX) + μb*idx*b[q]
+    end
+    return v
+end
+
+function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0)
+    # Extract Sizes
+    m, n = size(X)
+    r, N, p = size(T)
+    @assert n==N "Missmatch between the second dimention of X and T"
+    @assert iseven(r) "size(T)[1] = $r is not even"
+    @assert iseven(p) "size(T)[3] = $p is not even"
+
+    # Initilization
+    A = abs.(randn((m, r)))
+    b = abs.(randn((p,)))
+    i = 1
+    error = zeros((maxiter,))
+    error[i] = norm(X - A*(T×₃b))
+
+    # Forward maps and gradients
+    #A -> f(A, b, X, T, ϵA,γA,λA,μb)
+    #b -> f(A, b, X, T, ϵA,γA,λA,μb)
+    #A -> grad_A(A, b, X, T, ϵA,γA,λA)
+    #b -> grad_b(A, b, X, T, μb)
+    
+    mat(a) = reshape(a, m, r)
+
+    function update_A(A, b)
+        _, a = lbfgsb(a -> vec(f(mat(a), b, X, T, ϵA,γA,λA,μb)),
+                      a -> vec(grad_A(mat(a), b, X, T, ϵA,γA,λA)),
+                      vec(A), lb=0) # LBFGSB only accepts vector not matrix inputs
+        return mat(a)
+    end
+
+    function update_b(A, b)
+        _, b = lbfgsb(b -> f(A, b, X, T, ϵA,γA,λA,μb),
+                      b -> grad_b(A, b, X, T, μb),
+                      b, lb=0)
+        return b
+    end
+
+    # Updates
+    # i==1 to ensure the first step is performed 
+    # run while the error improves by tol and too many iterations haven't past
+    while (i == 1) || ((rel_error(error[i], error[i-1]) > tol) && (i < maxiter))
+        # Updates
+        A = update_A(A, b)
+        b = update_b(A, b)
+
+        # Find error
+        i += 1
+        error[i] = norm(X - A*(T×₃b))
+    end
+
+    error = error[1:i] ./ norm(X) # Chop off excess and standardize error
    
     b1, b2 = b[1:p÷2], b[p÷2+1:end]
     A1, A2 = A[:, 1:r÷2], A[:, r÷2+1:end];
