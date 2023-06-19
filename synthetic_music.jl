@@ -4,6 +4,7 @@ Generates synthetic music data to use NMF on
 
 using Random
 using STFT
+using Einsum
 
 """
 # Inputs
