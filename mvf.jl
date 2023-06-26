@@ -7,6 +7,7 @@ using LinearAlgebra
 
 using Einsum
 using LBFGSB
+using ForwardDiff
 
 """Contract the 3rd index of a tensor with a vector"""
 function ×₃(T::AbstractArray{U, 3}, v::Vector{U}) where U
@@ -166,8 +167,6 @@ function als(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0) #TODO Comb
     return (A, b, error)
 end
 
-iseven(n::Integer) = (n % 2 == 0)
-
 function H(A, λ, γ; δ=1e-10)
     if γ==0 #quick exit
         return λ*I
@@ -316,27 +315,43 @@ function norm_n(b)
     sum(make_indexes(p) .* (b .^ 2))
 end
 
-f(A, b, X, T, ϵA,γA,λA,μb) = 0.5*norm(X-A*(T×₃b))^2 + ϵA*norm(vec(A),1) + γA*norm_21(A) +
-                             0.5*λA*norm(A)^2 + 0.5*μb*norm_n(b)
+function b_sep(b)
+    q = length(b)÷2
+    b1 = @view b[1:q]
+    b2 = @view b[q+1:end]
+    return b1'b2 #inner product
+end
+
+function b_sep_grad(b,j)
+    q = length(b)÷2
+    return j ≤ q ? b[j+q] : b[j-q]
+end
+
+f(A, b, X, T, ϵA,γA,λA,μb,δb) = 0.5*norm(X-A*(T×₃b))^2 + ϵA*norm(vec(A),1) + γA*norm_21(A) +
+    0.5*λA*norm(A)^2 + 0.5*μb*norm_n(b) + δb*b_sep(b)
 
 function grad_A!(Z, A, b, X, T, ϵA,γA,λA) # Gradient w.r.t. A
     B = T×₃b
     norm_21_matrix = A .* repeat((norm.(eachcol(A)))',size(A)[1],1) .^ (-1)
-    Z[:,:] = A*B*B' .- X*B' .+ ϵA .+ γA .* norm_21_matrix .+ λA .* A
+    Z[:,:] = (A*B .- X)*B' .+ ϵA .+ γA .* norm_21_matrix .+ λA .* A
     # (A*B .- X)*B' .+ ϵA .+ γA .* norm_21_matrix .+ λA .* A #not sure which one is faster
 end
 
-function grad_b!(v, A, b, X, T, μb) # Gradient w.r.t. b
-    AX = A'X # Precompute Matricies
-    AATb = A'A*(T×₃b)
+function grad_b!(v, A, b, X, T, μb,δb) # Gradient w.r.t. b
+    #AX = A'X # Precompute Matricies
+    #AATb = A'A*(T×₃b)
+    AATbX = A'*(A*(T×₃b)-X)
     indexes = make_indexes(length(b))
     for (q, idx) ∈ zip(eachindex(b), indexes)
         Tq = @view T[:,:,q]
-        v[q] = sum(Tq .* AATb) - sum(Tq .* AX) + μb*idx*b[q]
+        #v[q] = sum(Tq .* AATb) - sum(Tq .* AX) + μb*idx*b[q]
+        v[q] = sum(Tq .* AATbX) + μb*idx*b[q] + δb*b_sep_grad(b,idx)
     end
+    v[1] = 0 #ensure b[1],b[p÷2] are not updated from 1
+    v[length(b)÷2+1] = 0
 end
 
-function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0)
+function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, δb=0)
     # Extract Sizes
     m, n = size(X)
     r, N, p = size(T)
@@ -347,6 +362,8 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0)
     # Initilization
     A = abs.(randn((m, r)))
     b = abs.(randn((p,)))
+    b[1] = 1 # fix the first entry of the spectrums to 1
+    b[p÷2+1] = 1
     i = 1
     error = zeros((maxiter,))
     error[i] = norm(X - A*(T×₃b))
@@ -359,17 +376,25 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0)
     
     mat(a) = reshape(a, m, r)
 
-    function update_A(A, b)
-        _, a = lbfgsb(a -> f(mat(a), b, X, T, ϵA,γA,λA,μb),
-                      (z, a) -> grad_A!(mat(z),mat(a), b, X, T, ϵA,γA,λA),
-                      vec(A), lb=0,iprint=0) # LBFGSB only accepts vector not matrix inputs
+    function update_A(A, b) #TODO add smart lbfgsb 
+        a_guess = vec(A)#abs.(randn(length(vec(A))))
+         _, a = lbfgsb(a -> f(mat(a), b, X, T, ϵA,γA,λA,μb,δb),
+                       (z, a) -> grad_A!(mat(z),mat(a), b, X, T, ϵA,γA,λA),
+                       a_guess, lb=0,iprint=0) # LBFGSB only accepts vector not matrix inputs 
+        #_, a = smartest_lbfgsb(a -> f(mat(a), b, X, T, ϵA,γA,λA,μb),
+        #                vec(A), lb=0,iprint=0) # LBFGSB only accepts vector not matrix inputs
         return mat(a)
     end
 
-    function update_b(A, b)
-        _, b = lbfgsb(b -> f(A, b, X, T, ϵA,γA,λA,μb),
-                      (v, b) -> grad_b!(v, A, b, X, T, μb),
-                      b, lb=0,iprint=0)
+    function update_b(A, b)#TODO add smart lbfgsb
+        b_guess = b#abs.(randn(length(b)))
+        #b[1] = 1 # fix the first entry of the spectrums to 1
+        #b[p÷2+1] = 1
+         _, b = lbfgsb(b -> f(A, b, X, T, ϵA,γA,λA,μb,δb),
+                       (v, b) -> grad_b!(v, A, b, X, T, μb,δb),
+                       b_guess, lb=0,iprint=0) 
+        # _, b = smartest_lbfgsb(b -> f(A, b, X, T, ϵA,γA,λA,μb),
+        #               b, lb=0,iprint=0)
         return b
     end
 
@@ -435,4 +460,24 @@ function Base.iterate(D::MyDataSet, state=1)
         X = A * (T ×₃ b)
         ((X,A,T,b), state+1)
     end
+end
+
+"""
+lbfgsb that computes the gradient of f using ForwardDiff
+"""
+function smart_lbfgsb(f, varargs...)
+    function g!(z,x)
+        z[:] = ForwardDiff.gradient(f,x)
+    end
+    return lbfgsb(f, g!, varargs...)
+end
+
+"""
+lbfgsb that computes the gradient of f using ForwardDiff
+"""
+function smartest_lbfgsb(f, x0; m=10, lb=[-Inf for i in x0], ub=[Inf for i in x0], kwargs...)
+    function g!(z,x)
+        z[:] = ForwardDiff.gradient(f,x)
+    end
+    return lbfgsb(f, g!, x0; m=m, lb=lb, ub=ub, kwargs...)
 end

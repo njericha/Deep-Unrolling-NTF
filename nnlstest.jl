@@ -4,14 +4,14 @@ using LBFGSB
 
 # Test to solve Y = AX where A is (fixed and known) random, Y given, X unknown
 # And X has positive entries
-m,r,n=4,1,3
+m,r,n=4,2,3
 A = randn((m,r))
 X_true = abs.(randn((r,n)))
 Y = A*X_true
 
-f(X) = 100*0.5*norm(Y - A*X)^2
+f(X) = 0.5*norm(Y - A*X)^2
 function g!(Z, X)
-    Z[:,:] = 100*A'*(Y - A*X)
+    Z[:,:] = -A'*(Y - A*X)
 end
 
 # Initilization
@@ -26,7 +26,12 @@ end
 
 f_out, X_out = solve_for_X(X)
 
+function smart_solve_for_X(X)
+    f_out, x_out = smartest_lbfgsb(x->f(mat(x)),vec(X), lb=0,iprint=0) # LBFGSB only accepts vector not matrix inputs
+    return f_out, mat(x_out)
+end
 
+f_out, X_out = smart_solve_for_X(X)
 
 # Test to solve Y = AX where A is (fixed and known) random, Y given, X unknown
 # And X has positive entries
