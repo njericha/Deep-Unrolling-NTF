@@ -315,16 +315,38 @@ function norm_n(b)
     sum(make_indexes(p) .* (b .^ 2))
 end
 
-function b_sep(b)
+#=function b_sep(b)
     q = length(b)÷2
     b1 = @view b[1:q]
     b2 = @view b[q+1:end]
     return b1'b2 #inner product
+end=#
+#=
+function b_sep_grad(b,j)
+    q = length(b)÷2
+    return j ≤ q ? b[j+q] : b[j-q]
+end=#
+
+function b_sep(b)
+    q = length(b)÷2
+    b1 = @view b[1:q]
+    b2 = @view b[q+1:end]
+    return abs(b1'b2 / (norm(b1)*norm(b2))) #normalized inner product
 end
 
 function b_sep_grad(b,j)
     q = length(b)÷2
-    return j ≤ q ? b[j+q] : b[j-q]
+    b1 = @view b[1:q]
+    b2 = @view b[q+1:end]
+    norm_b1 = norm(b1)
+    norm_b2 = norm(b2)
+    inner_prod = b1'b2
+    if j ≤ q 
+        g = (b[j+q] - b[j]*inner_prod/norm_b1^2) / (norm_b1 * norm_b2)
+    else
+        g = (b[j-q] - b[j]*inner_prod/norm_b2^2) / (norm_b1 * norm_b2)
+    end
+    return sign(b_sep(b))*g # TODO optimize computation, only should evaluate the sign once
 end
 
 f(A, b, X, T, ϵA,γA,λA,μb,δb) = 0.5*norm(X-A*(T×₃b))^2 + ϵA*norm(vec(A),1) + γA*norm_21(A) +
@@ -366,14 +388,20 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
     b[p÷2+1] = 1
     i = 1
     error = zeros((maxiter,))
+    norm_grad_A = zeros((maxiter,))
+    norm_grad_b = zeros((maxiter,))
     error[i] = norm(X - A*(T×₃b))
+    G = copy(A); grad_A!(G, A, b, X, T, ϵA,γA,λA)
+    g = copy(b); grad_b!(g, A, b, X, T, μb,δb)
+    norm_grad_A[i] = norm(G)
+    norm_grad_b[i] = norm(g)
 
     # Forward maps and gradients
     #A -> f(A, b, X, T, ϵA,γA,λA,μb)
     #b -> f(A, b, X, T, ϵA,γA,λA,μb)
     #A -> grad_A(A, b, X, T, ϵA,γA,λA)
     #b -> grad_b(A, b, X, T, μb)
-    
+    copy
     mat(a) = reshape(a, m, r)
 
     function update_A(A, b) #TODO add smart lbfgsb 
@@ -398,10 +426,17 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
         return b
     end
 
+    #not_converged(error, i) = (rel_error(error[i], error[i-1]) > tol)
+    function not_converged(norm_grad_A, norm_grad_b, i)
+        norm_grad = (norm_grad_A[i]^2 + norm_grad_b[i]^2)^0.5
+        init_grad = (norm_grad_A[1]^2 + norm_grad_b[1]^2)^0.5
+        return (norm_grad/init_grad) > tol 
+    end
+
     # Updates
     # i==1 to ensure the first step is performed 
     # run while the error improves by tol and too many iterations haven't past
-    while (i == 1) || ((rel_error(error[i], error[i-1]) > tol) && (i < maxiter))
+    while (i == 1) || (not_converged(norm_grad_A, norm_grad_b, i) && (i < maxiter))
         # Updates
         A = update_A(A, b)
         b = update_b(A, b)
@@ -409,14 +444,22 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
         # Find error
         i += 1
         error[i] = norm(X - A*(T×₃b))
+
+        # Save gradients
+        G = copy(A); grad_A!(G, A, b, X, T, ϵA,γA,λA)
+        g = copy(b); grad_b!(g, A, b, X, T, μb,δb)
+        norm_grad_A[i] = norm(G)
+        norm_grad_b[i] = norm(g)
     end
 
     error = error[1:i] ./ norm(X) # Chop off excess and standardize error
-   
+    norm_grad_A = norm_grad_A[1:i] #./ norm_grad_A[1] # Chop off and standardize by initial gradient
+    norm_grad_b = norm_grad_b[1:i] #./ norm_grad_b[1] # Chop off and standardize by initial gradient
+
     b1, b2 = b[1:p÷2], b[p÷2+1:end]
     A1, A2 = A[:, 1:r÷2], A[:, r÷2+1:end];
 
-    return (A1, A2, b1, b2, error)
+    return (A1, A2, b1, b2, error, norm_grad_A, norm_grad_b)
 end
 
 # Generate a data set all at once
