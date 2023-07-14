@@ -10,7 +10,7 @@ using LBFGSB
 using ForwardDiff
 
 """Contract the 3rd index of a tensor with a vector"""
-function ×₃(T::AbstractArray{U, 3}, v::Vector{U}) where U
+function ×₃(T::AbstractArray{U, 3}, v::AbstractVector{U}) where U
     @einsum M[i,j] := T[i,j,k]*v[k]
     return M
 end
@@ -373,6 +373,18 @@ function grad_b!(v, A, b, X, T, μb,δb) # Gradient w.r.t. b
     v[length(b)÷2+1] = 0
 end
 
+"""
+    find_best_scale(x, y)
+
+finds the best constant c s.t. c * x = y.
+More exactly, c where norm(c .* x - y) is minimized
+"""
+function find_best_scale(x, y)
+    xx = sum(x .* x)
+    xy = sum(x .* y)
+    return xy / xx
+end
+
 function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, δb=0)
     # Extract Sizes
     m, n = size(X)
@@ -401,7 +413,7 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
     #b -> f(A, b, X, T, ϵA,γA,λA,μb)
     #A -> grad_A(A, b, X, T, ϵA,γA,λA)
     #b -> grad_b(A, b, X, T, μb)
-    copy
+    
     mat(a) = reshape(a, m, r)
 
     function update_A(A, b) #TODO add smart lbfgsb 
@@ -428,9 +440,9 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
 
     #not_converged(error, i) = (rel_error(error[i], error[i-1]) > tol)
     function not_converged(norm_grad_A, norm_grad_b, i)
-        norm_grad = (norm_grad_A[i]^2 + norm_grad_b[i]^2)^0.5
-        init_grad = (norm_grad_A[1]^2 + norm_grad_b[1]^2)^0.5
-        return (norm_grad/init_grad) > tol 
+        norm_grad = sqrt(norm_grad_A[i]^2 + norm_grad_b[i]^2)
+        init_grad = sqrt(norm_grad_A[1]^2 + norm_grad_b[1]^2)
+        return (norm_grad/init_grad) > tol
     end
 
     # Updates
@@ -452,6 +464,14 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
         norm_grad_b[i] = norm(g)
     end
 
+    # Rescale the learned factorization to best fit Y = c .* Yhat
+    # This is needed since regularizes like L1 reduce the overall
+    # amplitude of the learned result
+    Xhat = A*(T×₃b)
+    c = find_best_scale(Xhat, X)
+    A .*= c
+    @show c
+
     error = error[1:i] ./ norm(X) # Chop off excess and standardize error
     norm_grad_A = norm_grad_A[1:i] #./ norm_grad_A[1] # Chop off and standardize by initial gradient
     norm_grad_b = norm_grad_b[1:i] #./ norm_grad_b[1] # Chop off and standardize by initial gradient
@@ -460,6 +480,67 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
     A1, A2 = A[:, 1:r÷2], A[:, r÷2+1:end];
 
     return (A1, A2, b1, b2, error, norm_grad_A, norm_grad_b)
+end
+
+function nnls_vec(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, δb=0)
+    # Extract Sizes
+    m, n = size(X)
+    r, N, p = size(T)
+    @assert n==N "Missmatch between the second dimention of X and T"
+    @assert iseven(r) "size(T)[1] = $r is not even"
+    @assert iseven(p) "size(T)[3] = $p is not even"
+    
+    mat(a) = reshape(a, m, r)
+
+    # Make a single vector v representing all unknowns
+    vectorize(A,b) = [vec(A) ; b]
+    matricize(v) = (mat(@view v[1:m*r]), @view v[m*r+1:end])
+    # v = vectorize(A,b)
+    # A, b = matricize(v)
+
+    # Initilization
+    A = abs.(randn((m, r)))
+    b = abs.(randn((p,)))
+    b[1] = 1 # fix the first entry of the spectrums to 1
+    b[p÷2+1] = 1
+    v_init = vectorize(A,b)
+
+    function f_vec(v)
+        A, b = matricize(v)
+        return f(A, b, X, T, ϵA,γA,λA,μb,δb)
+    end
+
+    function grad_vec!(u, v)
+        Z, z = matricize(u)
+        A, b = matricize(v)
+        grad_A!(Z, A, b, X, T, ϵA,γA,λA)
+        grad_b!(z, A, b, X, T, μb,δb)
+    end
+
+    # All the work is done by lbfgsb
+    _, v_out = lbfgsb(f_vec, grad_vec!, v_init, lb=0, iprint=0, factr=1e10)
+    A, b = matricize(v_out)
+
+    function update_A(A, b)
+         _, a = lbfgsb(a -> f(mat(a), b, X, T, ϵA,γA,λA,μb,δb),
+                       (z, a) -> grad_A!(mat(z),mat(a), b, X, T, ϵA,γA,λA),
+                        vec(A), lb=0,iprint=0, factr=1e8)
+        return mat(a)
+    end
+
+    function update_b(A, b)
+         _, b = lbfgsb(b -> f(A, b, X, T, ϵA,γA,λA,μb,δb),
+                       (v, b) -> grad_b!(v, A, b, X, T, μb,δb),
+                       b, lb=0,iprint=0, factr=1e8)
+        return b
+    end
+    # Single stage refinement
+    b = update_b(A, b)
+    A = update_A(A, b)
+
+    b1, b2 = b[1:p÷2], b[p÷2+1:end]
+    A1, A2 = A[:, 1:r÷2], A[:, r÷2+1:end]
+    return (A1, A2, b1, b2)
 end
 
 # Generate a data set all at once

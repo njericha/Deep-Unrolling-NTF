@@ -91,8 +91,20 @@ function notename_to_keynumber(s::String) #TODO convert this to a type?
     return key
 end
 
+
+"""
+    keynumber_to_notename(n::Integer; accidental="♯")
+
+An inverse to notename_to_keynumber. The accidental must be in "#♯b♭"
+and says if sharps or flats should be used.
+"""
+function keynumber_to_notename(n::Integer; accidental="♯")
+    # TODO make inverse function for notename_to_keynumber
+end
+
 keynumber_to_frequency(n::Integer) = @. 440*2^((n-49)/12)
 notename_to_frequency(s::String) = s |> notename_to_keynumber |> keynumber_to_frequency
+
 
 """
 make a time series x at time samples t with a given:
@@ -145,10 +157,11 @@ function make_sources(t, N)
     spectrum2[1] = 1
     spectrum2[3] = 1/2;
     spectrum2[5] = 1/3;
+    spectrums = [spectrum1, spectrum2]
 
     x1 = make_source(t, spectrum1, notes1, delays1, asr1)
     x2 = make_source(t, spectrum2, notes2, delays2, asr2)
-    return x1 , x2
+    return x1 , x2, spectrums
 end
 
 w = 300 # window width
@@ -180,16 +193,16 @@ function make_spectogram()
 
     # Matrix Sizes
     nq = sample_rate÷2 #Niquist rate
-    #tmax = maximum(t)
+    tmax = maximum(t)
     F, T = size(mystft(t))
     #r = length(notes)
     freqs = range(0, nq, F)
-    #times = range(0, tmax, T)
+    times = range(0, tmax, T)
 
     L = 52 #88  # of pitches
     N = 6  # of harmonics
     #j = 1:F #j = 1:J
-    l = 1:L
+    l = 1:L #standard midi note range
     n = 1:N
 
     h = n #need the alias for Einsum
@@ -199,18 +212,17 @@ function make_spectogram()
     # Make large tensor
     @einsum D[l,j,n] := close_in_frequency(h[n]*f[l], ν[j])
 
-    DD = double_tensor(D)
-
     # make sources
-    x1, x2 = make_sources(t, N)
+    x1, x2, spectrums = make_sources(t, N)
     y = x1 + x2
 
     # make spectograms
     Y = abs.(mystft(y))
     Φ = angle.(mystft(y))
-    Xs = [abs.(mystft(x)) for x ∈ (x1, x2)]
+    xs = [x1, x2]
+    Xs = [abs.(mystft(x)) for x ∈ xs]
 
-    return Y, Φ, Xs, DD
+    return Y, Φ, Xs, xs, D, spectrums, t, times, l, freqs # TODO turn this into a struct
 end
 
 #(A1, A2, b1, b2, error) = als_seperate(Y', DD; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0);
