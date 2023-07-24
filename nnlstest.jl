@@ -92,3 +92,6 @@ lb = [isodd(i) ? 1e0 : -1e2 for i in 1:n]
 ub = 1e2
 
 fout, xout = lbfgsb(f, g!, x, lb=lb, ub=ub, m=5, factr=1e7, pgtol=1e-5, iprint=0, maxfun=15000, maxiter=15000)
+
+
+######

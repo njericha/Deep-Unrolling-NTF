@@ -25,7 +25,7 @@ function mvf(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1
     m, n = size(X)
     r, N, p = size(T)
     @assert n==N "Missmatch between the second dimention of X and T"
-    
+
     # Initilization
     A = abs.(randn((m, r)))
     b = abs.(randn((p,)))
@@ -38,11 +38,11 @@ function mvf(X, T; power=1, maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=1e-8, ϵb=1
     # Updates
     while (error[i] > tol) && (i < maxiter)
         power = smooth_power(i)
-        
+
         # Precompute Matricies
         AX = A'X
         AATb = A'A*B
-        
+
         # Update b
         for q ∈ eachindex(b)
             Tq = @view T[:,:,q]
@@ -76,7 +76,7 @@ function als(X, T; maxiter=800, tol=1e-3)
     m, n = size(X)
     r, N, p = size(T)
     @assert n==N "Missmatch between the second dimention of X and T"
-    
+
     # Initilization
     A = abs.(randn((m, r)))
     b = abs.(randn((p,)))
@@ -124,7 +124,7 @@ function als(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0) #TODO Comb
     m, n = size(X)
     r, N, p = size(T)
     @assert n==N "Missmatch between the second dimention of X and T"
-    
+
     # Initilization
     A = abs.(randn((m, r)))
     b = abs.(randn((p,)))
@@ -301,7 +301,7 @@ function als_seperate(X, T; maxiter=800, tol=1e-3, λA=0, λb=0, ϵA=0, ϵb=0, �
     #bnorm = norm(b)
     #A .*= bnorm
     #b ./= bnorm
-   
+
     b1, b2 = b[1:p÷2], b[p÷2+1:end]
     A1, A2 = A[:, 1:r÷2], A[:, r÷2+1:end];
 
@@ -341,7 +341,7 @@ function b_sep_grad(b,j)
     norm_b1 = norm(b1)
     norm_b2 = norm(b2)
     inner_prod = b1'b2
-    if j ≤ q 
+    if j ≤ q
         g = (b[j+q] - b[j]*inner_prod/norm_b1^2) / (norm_b1 * norm_b2)
     else
         g = (b[j-q] - b[j]*inner_prod/norm_b2^2) / (norm_b1 * norm_b2)
@@ -413,14 +413,14 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
     #b -> f(A, b, X, T, ϵA,γA,λA,μb)
     #A -> grad_A(A, b, X, T, ϵA,γA,λA)
     #b -> grad_b(A, b, X, T, μb)
-    
+
     mat(a) = reshape(a, m, r)
 
-    function update_A(A, b) #TODO add smart lbfgsb 
+    function update_A(A, b) #TODO add smart lbfgsb
         a_guess = vec(A)#abs.(randn(length(vec(A))))
          _, a = lbfgsb(a -> f(mat(a), b, X, T, ϵA,γA,λA,μb,δb),
                        (z, a) -> grad_A!(mat(z),mat(a), b, X, T, ϵA,γA,λA),
-                       a_guess, lb=0,iprint=0) # LBFGSB only accepts vector not matrix inputs 
+                       a_guess, lb=0,iprint=0) # LBFGSB only accepts vector not matrix inputs
         #_, a = smartest_lbfgsb(a -> f(mat(a), b, X, T, ϵA,γA,λA,μb),
         #                vec(A), lb=0,iprint=0) # LBFGSB only accepts vector not matrix inputs
         return mat(a)
@@ -432,7 +432,7 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
         #b[p÷2+1] = 1
          _, b = lbfgsb(b -> f(A, b, X, T, ϵA,γA,λA,μb,δb),
                        (v, b) -> grad_b!(v, A, b, X, T, μb,δb),
-                       b_guess, lb=0,iprint=0) 
+                       b_guess, lb=0,iprint=0)
         # _, b = smartest_lbfgsb(b -> f(A, b, X, T, ϵA,γA,λA,μb),
         #               b, lb=0,iprint=0)
         return b
@@ -446,7 +446,7 @@ function nnls_seperate(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, �
     end
 
     # Updates
-    # i==1 to ensure the first step is performed 
+    # i==1 to ensure the first step is performed
     # run while the error improves by tol and too many iterations haven't past
     while (i == 1) || (not_converged(norm_grad_A, norm_grad_b, i) && (i < maxiter))
         # Updates
@@ -489,7 +489,7 @@ function nnls_vec(X, T; maxiter=25, tol=1e-3, λA=0, ϵA=0, γA=0, μb=0, δb=0)
     @assert n==N "Missmatch between the second dimention of X and T"
     @assert iseven(r) "size(T)[1] = $r is not even"
     @assert iseven(p) "size(T)[3] = $p is not even"
-    
+
     mat(a) = reshape(a, m, r)
 
     # Make a single vector v representing all unknowns
@@ -575,7 +575,7 @@ Base.length(D::MyDataSet)=D.dataset_length
 Base.eltype(::Type{MyDataSet})=Tuple{Matrix{Float64},Matrix{Float64},Array{Float64},Vector{Float64}}
 
 function Base.iterate(D::MyDataSet, state=1)
-    if state > D.dataset_length 
+    if state > D.dataset_length
         return nothing
     else
         A = abs.(randn(D.Asize))

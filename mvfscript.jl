@@ -19,34 +19,35 @@ DD = double_tensor(D);
 (A1, A2, b1, b2, error, norm_grad_A, norm_grad_b) = nnls_seperate(
     Y', DD; maxiter=25, tol=1e-3, λA=1e-8, ϵA=5e0, γA=4e1, μb=1.5e3, δb=0);
 
-
+# Create Estimates of the sources in STFT-space
 X1_estimate, X2_estimate = (A1*(D×₃b1))', (A2*(D×₃b2))';
 X1, X2 = Xs;
+
 """
     align_sources!((A1, b1, X1_estimate), (A2, b2, X2_estimate), X1, X2)
 
-swaps (A1, b1, X1_estimate) and (A2, b2, X2_estimate) if it better matches 
+swaps (A1, b1, X1_estimate) and (A2, b2, X2_estimate) if it better matches
 the true spectrums X1 and X2
 """
 function align_sources!((A1, b1, X1_estimate), (A2, b2, X2_estimate), X1, X2)
     function swap!(x, y)
         temp = copy(x)
-        x .= y; y.= temp        
+        x .= y; y.= temp
     end
     if norm(X1_estimate - X1) > norm(X1_estimate - X2)
         swap!.((A1, b1, X1_estimate), (A2, b2, X2_estimate))
-    end 
+    end
 end
 align_sources!((A1, b1, X1_estimate), (A2, b2, X2_estimate), X1, X2);
 
 #= Evaluations =#
 myerror(xhat, x) = (norm(xhat - x) / norm(x))^2 # relative mean squared error
 
-myerror(X1_estimate, X1)
-myerror(X2_estimate, X2)
-myerror(X1_estimate + X2_estimate, Y)
-myerror(b1, spectrums[1])
-myerror(b2, spectrums[2])
+@show myerror(X1_estimate, X1)
+@show myerror(X2_estimate, X2)
+@show myerror(X1_estimate + X2_estimate, Y)
+@show myerror(b1, spectrums[1])
+@show myerror(b2, spectrums[2])
 
 
 #= Plots =#
