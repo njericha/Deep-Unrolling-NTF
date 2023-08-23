@@ -2,7 +2,7 @@
 
 julia_version = "1.9.1"
 manifest_format = "2.0"
-project_hash = "da3e0933af6a16c43e962417ab8459fa7de210e2"
+project_hash = "5f12bef6111b78f989ddc65769a1873f1184e9f0"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -439,7 +439,7 @@ uuid = "28b8d3ca-fb5f-59d9-8090-bfdbd6d07a71"
 version = "0.72.9"
 
 [[deps.GR_jll]]
-deps = ["Artifacts", "Bzip2_jll", "Cairo_jll", "FFMPEG_jll", "Fontconfig_jll", "GLFW_jll", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Libtiff_jll", "Pixman_jll", "Qt6Base_jll", "Zlib_jll", "libpng_jll"]
+deps = ["Artifacts", "Bzip2_jll", "Cairo_jll", "FFMPEG_jll", "Fontconfig_jll", "FreeType2_jll", "GLFW_jll", "JLLWrappers", "JpegTurbo_jll", "Libdl", "Libtiff_jll", "Pixman_jll", "Qt6Base_jll", "Zlib_jll", "libpng_jll"]
 git-tree-sha1 = "f61f768bf090d97c532d24b64e07b237e9bb7b6b"
 uuid = "d2c73de3-f751-5644-a686-071e5b155ba9"
 version = "0.72.9+0"
