@@ -33,7 +33,7 @@ end
 normalized(y; ceiling = 0.98) =  y ./ maximum(abs.(y)) .* ceiling
 
 """
-Time points t, the pitch is the fundimental frequency, harmonics is a list giving the relative weights of each harmonic 
+Time points t, the pitch is the fundimental frequency, harmonics is a list giving the relative weights of each harmonic
 """
 function note(t, pitch, harmonics)
     f₀ = pitch
@@ -87,7 +87,7 @@ function notename_to_keynumber(s::String) #TODO convert this to a type?
     elseif occursin(accidental, "b♭")
         key -= 1
     end
-    
+
     return key
 end
 
@@ -127,8 +127,14 @@ function close_in_cents(f,g;tol=20) #within tol cents
 	return 1200*abs(log2(f/g)) < tol #1200 cents per octave (power of 2)
 end
 
-function close_in_frequency(f,g;tol=10) #within tol Hz
-	return abs(f-g) < tol #1200 cents per octave (power of 2)
+function close_in_frequency(f,g;tol=8) #within tol Hz
+	return exp(-(f-g)^2/(2*tol^2)) |> threshold # truncated Gaussian window
+    #return f == g # perfect world
+    #return abs(f-g) < tol # a "square window"
+end
+
+function threshold(x;t=1e-8)
+    return abs(x) > t ? x : zero(x)
 end
 
 
@@ -167,7 +173,7 @@ end
 w = 300 # window width
 hop = w÷2 - 1 # number of samples to hop over
 window = hann(w)
-mystft(y) = stft(y, window, hop) #make a single parameter 
+mystft(y) = stft(y, window, hop) #make a single parameter
 myistft(Y) = istft(Y, window, hop)
 
 #Φ = angle.(mystft(y))

@@ -49,6 +49,29 @@ myerror(xhat, x) = (norm(xhat - x) / norm(x))^2 # relative mean squared error
 @show myerror(b1, spectrums[1])
 @show myerror(b2, spectrums[2])
 
+using Statistics: mean
+rms(x) = sqrt(mean(x .^ 2))
+snr(xhat, x) = 20*log10(rms(x) / rms(x - xhat))
+
+@show snr(X1_estimate, X1)
+@show snr(X2_estimate, X2)
+@show snr(X1_estimate + X2_estimate, Y)
+@show snr(b1, spectrums[1])
+@show snr(b2, spectrums[2])
+
+#= Smart Rescaling for X estimates=#
+c1 = find_best_scale(X1_estimate, X1)
+c2 = find_best_scale(X2_estimate, X2)
+X1_estimate .*= c1
+X2_estimate .*= c2
+
+@show myerror(X1_estimate, X1)
+@show myerror(X2_estimate, X2)
+@show myerror(X1_estimate + X2_estimate, Y)
+
+@show snr(X1_estimate, X1)
+@show snr(X2_estimate, X2)
+@show snr(X1_estimate + X2_estimate, Y)
 
 #= Plots =#
 # learned spectrums b1 and b2 with the ground truth
@@ -74,6 +97,11 @@ heatmap(times, midi_notes, A2',
 )
 
 # Learned vs True Instrument Spectrums absolute difference
+heatmap(times, freqs, Y,
+title= "Input Spectogram",
+xaxis="time (s)",
+ylabel="frequency (Hz)")
+
 heatmap(times, freqs, abs.(X1_estimate - X1),
 title= "Absolute Difference Between Learned and True\nSpectograms for Source 1\n",
 xaxis="time (s)",
@@ -151,3 +179,10 @@ wavplay(x1_estimate, sample_rate)
 wavplay(x2, sample_rate)
 wavplay(x2_theory, sample_rate)
 wavplay(x2_estimate, sample_rate)
+
+wavplay(x1 + x2, sample_rate)
+wavplay(x1_estimate + x2_estimate, sample_rate)
+
+@show snr(x1_estimate, x1_theory) # same as in STFT space by Parseval's theorem
+@show snr(x2_estimate, x2_theory)
+@show snr(x1_estimate + x2_estimate, x1_theory + x2_theory)
